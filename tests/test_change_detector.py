@@ -175,3 +175,34 @@ def test_analyze_change_impact_includes_dependent_functions(tmp_path):
 
     assert "calculate_total" in result
     assert "create_invoice" in result
+
+
+def test_extract_changed_lines_by_file_keeps_line_numbers_separate():
+    from changescope.change_detector import extract_changed_lines_by_file
+
+    diff_text = """\
+diff --git a/first.py b/first.py
+--- a/first.py
++++ b/first.py
+@@ -1,2 +1,2 @@
+ def first():
+-    return 1
++    return 2
+diff --git a/second.py b/second.py
+--- a/second.py
++++ b/second.py
+@@ -1,2 +1,2 @@
+ def second():
+-    return 3
++    return 4
+"""
+
+    result = extract_changed_lines_by_file(diff_text)
+
+    assert result == {"first.py": {2}, "second.py": {2}}
+
+
+def test_extract_changed_lines_by_file_handles_empty_diff():
+    from changescope.change_detector import extract_changed_lines_by_file
+
+    assert extract_changed_lines_by_file("") == {}

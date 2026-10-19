@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 from changescope.dependency_graph import (
@@ -12,52 +13,76 @@ def find_functions_at_lines(
     source_code: str,
     changed_lines: set[int],
 ) -> list[FunctionInfo]:
-    functions = extract_functions(source_code)
-
-    affected_functions = [
+    return [
         function
-        for function in functions
+        for function in extract_functions(source_code)
         if any(
             function.line_number <= line <= function.end_line_number
             for line in changed_lines
         )
     ]
 
-    return affected_functions
-
-
 
 def extract_changed_lines(diff_text: str) -> set[int]:
-    
-    import re
-
     changed_lines = set()
     current_line = None
 
     for line in diff_text.splitlines():
         if line.startswith("@@"):
             match = re.search(r"\+(\d+)(?:,(\d+))?", line)
-
-            if match:
-                current_line = int(match.group(1))
-
+            current_line = int(match.group(1)) if match else None
             continue
 
         if current_line is None:
             continue
 
-        if line.startswith("+") and not line.startswith("+++"):
+        if line.startswith("+++"):
+            continue
+        if line.startswith("---"):
+            continue
+        if line.startswith("+"):
             changed_lines.add(current_line)
             current_line += 1
-
-        elif line.startswith("-") and not line.startswith("---"):
+        elif line.startswith("-"):
             continue
-
         elif line.startswith(" "):
             current_line += 1
 
     return changed_lines
 
+
+def extract_changed_lines_by_file(diff_text: str) -> dict[str, set[int]]:
+    changed_by_file = {}
+    current_file = None
+    current_line = None
+
+    for line in diff_text.splitlines():
+        if line.startswith("+++ b/"):
+            current_file = line[6:]
+            changed_by_file.setdefault(current_file, set())
+            current_line = None
+            continue
+
+        if line.startswith("+++ ") or line.startswith("--- "):
+            continue
+
+        if line.startswith("@@"):
+            match = re.search(r"\+(\d+)(?:,(\d+))?", line)
+            current_line = int(match.group(1)) if match else None
+            continue
+
+        if current_file is None or current_line is None:
+            continue
+
+        if line.startswith("+"):
+            changed_by_file[current_file].add(current_line)
+            current_line += 1
+        elif line.startswith("-"):
+            continue
+        elif line.startswith(" "):
+            current_line += 1
+
+    return changed_by_file
 
 
 def detect_changed_functions(
@@ -65,26 +90,16 @@ def detect_changed_functions(
     base_ref: str,
     target_ref: str = "HEAD",
 ) -> list[FunctionInfo]:
-    diff_text = read_git_diff(repository_path, base_ref, target_ref)
-    changed_lines = extract_changed_lines(diff_text)
-
-    if not changed_lines:
-        return []
-
-    changed_files = set()
-
-    for line in diff_text.splitlines():
-        if line.startswith("+++ b/"):
-            changed_files.add(line[6:])
-
+    repository = Path(repository_path)
+    diff_text = read_git_diff(repository, base_ref, target_ref)
+    changed_by_file = extract_changed_lines_by_file(diff_text)
     affected_functions = []
 
-    for file_path in changed_files:
-        if not file_path.endswith(".py"):
+    for file_path, changed_lines in changed_by_file.items():
+        if not file_path.endswith(".py") or not changed_lines:
             continue
 
-        full_path = Path(repository_path) / file_path
-
+        full_path = repository / file_path
         if not full_path.is_file():
             continue
 
@@ -94,7 +109,6 @@ def detect_changed_functions(
         )
 
     return affected_functions
-
 
 
 def analyze_change_impact(
@@ -107,12 +121,11 @@ def analyze_change_impact(
         base_ref,
         target_ref,
     )
-
     changed_names = {function.name for function in changed_functions}
-    source_files = Path(repository_path).rglob("*.py")
-    graph: dict[str, set[str]] = {}
+    repository = Path(repository_path)
+    graph = {}
 
-    for source_file in source_files:
+    for source_file in repository.rglob("*.py"):
         if ".venv" in source_file.parts or ".git" in source_file.parts:
             continue
 
