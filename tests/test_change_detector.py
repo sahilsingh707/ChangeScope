@@ -206,3 +206,116 @@ def test_extract_changed_lines_by_file_handles_empty_diff():
     from changescope.change_detector import extract_changed_lines_by_file
 
     assert extract_changed_lines_by_file("") == {}
+
+
+
+def test_detects_deleted_function_in_git_repository(tmp_path):
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.name", "ChangeScope Tests"],
+        cwd=tmp_path,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "tests@example.com"],
+        cwd=tmp_path,
+        check=True,
+    )
+
+    source_file = tmp_path / "calculator.py"
+    source_file.write_text(
+        "def calculate_total(price):\n"
+        "    return price * 1.18\n\n"
+        "def legacy_total(price):\n"
+        "    return price\n",
+        encoding="utf-8",
+    )
+
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Add calculator functions"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+
+    source_file.write_text(
+        "def calculate_total(price):\n"
+        "    return price * 1.18\n",
+        encoding="utf-8",
+    )
+
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Remove legacy function"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+
+    result = detect_changed_functions(tmp_path, "HEAD~1", "HEAD")
+
+    assert "legacy_total" in [function.name for function in result]
+
+
+
+def test_impact_analysis_keeps_same_named_functions_separate(tmp_path):
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.name", "ChangeScope Tests"],
+        cwd=tmp_path,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "tests@example.com"],
+        cwd=tmp_path,
+        check=True,
+    )
+
+    billing_file = tmp_path / "billing.py"
+    billing_file.write_text(
+        "def process_data():\n"
+        "    return 1\n\n"
+        "def create_invoice():\n"
+        "    return process_data()\n",
+        encoding="utf-8",
+    )
+
+    analytics_file = tmp_path / "analytics.py"
+    analytics_file.write_text(
+        "def process_data():\n"
+        "    return 2\n\n"
+        "def build_dashboard():\n"
+        "    return process_data()\n",
+        encoding="utf-8",
+    )
+
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Add billing and analytics"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+
+    billing_file.write_text(
+        "def process_data():\n"
+        "    return 100\n\n"
+        "def create_invoice():\n"
+        "    return process_data()\n",
+        encoding="utf-8",
+    )
+
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Update billing calculation"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+
+    affected = analyze_change_impact(tmp_path, "HEAD~1", "HEAD")
+
+    assert "process_data" in affected
+    assert "create_invoice" in affected
+    assert "build_dashboard" not in affected

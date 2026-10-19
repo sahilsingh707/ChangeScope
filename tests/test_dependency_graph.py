@@ -39,3 +39,53 @@ def test_finds_transitive_affected_functions():
 
 def test_handles_invalid_python():
     assert build_dependency_graph("def broken(:") == {}
+
+
+
+def test_repository_graph_distinguishes_same_named_functions():
+    from changescope.dependency_graph import build_repository_dependency_graph
+
+    graph = build_repository_dependency_graph(
+        {
+            "billing.py": (
+                "def process_data():\n"
+                "    return 1\n\n"
+                "def create_invoice():\n"
+                "    return process_data()\n"
+            ),
+            "analytics.py": (
+                "def process_data():\n"
+                "    return 2\n\n"
+                "def build_dashboard():\n"
+                "    return process_data()\n"
+            ),
+        }
+    )
+
+    assert graph["billing.py::create_invoice"] == {
+        "billing.py::process_data"
+    }
+    assert graph["analytics.py::build_dashboard"] == {
+        "analytics.py::process_data"
+    }
+
+
+def test_repository_graph_resolves_unique_cross_file_calls():
+    from changescope.dependency_graph import build_repository_dependency_graph
+
+    graph = build_repository_dependency_graph(
+        {
+            "billing.py": (
+                "def calculate_total():\n"
+                "    return 100\n"
+            ),
+            "api.py": (
+                "def create_invoice():\n"
+                "    return calculate_total()\n"
+            ),
+        }
+    )
+
+    assert graph["api.py::create_invoice"] == {
+        "billing.py::calculate_total"
+    }

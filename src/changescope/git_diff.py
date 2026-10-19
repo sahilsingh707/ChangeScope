@@ -28,3 +28,23 @@ def read_git_diff(
         raise RuntimeError(message)
 
     return result.stdout
+
+
+def read_git_file(
+    repository_path: str | Path,
+    revision: str,
+    file_path: str,
+) -> str | None:
+    result = subprocess.run(
+        ["git", "show", f"{revision}:{file_path}"],
+        cwd=repository_path,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+
+    if result.returncode != 0:
+        return None
+
+    return result.stdout
