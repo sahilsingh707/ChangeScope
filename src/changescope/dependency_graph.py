@@ -14,26 +14,58 @@ def build_dependency_graph(source_code: str) -> dict[str, set[str]]:
     class FunctionCallVisitor(ast.NodeVisitor):
         def __init__(self) -> None:
             self.function_stack: list[str] = []
+            self.class_stack: list[str] = []
+
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:
+            self.class_stack.append(node.name)
+            self.generic_visit(node)
+            self.class_stack.pop()
 
         def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-            self.function_stack.append(node.name)
-            graph.setdefault(node.name, set())
-            self.generic_visit(node)
-            self.function_stack.pop()
+            self._visit_function(node)
 
         def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-            self.function_stack.append(node.name)
-            graph.setdefault(node.name, set())
+            self._visit_function(node)
+
+        def _visit_function(
+            self,
+            node: ast.FunctionDef | ast.AsyncFunctionDef,
+        ) -> None:
+            name = node.name
+            qualified_name = (
+                f"{self.class_stack[-1]}.{name}"
+                if self.class_stack
+                else name
+            )
+
+            self.function_stack.append(qualified_name)
+            graph.setdefault(name, set())
+            graph.setdefault(qualified_name, set())
+
             self.generic_visit(node)
             self.function_stack.pop()
 
         def visit_Call(self, node: ast.Call) -> None:
-            if self.function_stack and isinstance(node.func, ast.Name):
-                graph[self.function_stack[-1]].add(node.func.id)
+            if self.function_stack:
+                caller = self.function_stack[-1]
+                caller_name = caller.rsplit(".", maxsplit=1)[-1]
+
+                if isinstance(node.func, ast.Name):
+                    callee_name = node.func.id
+                    graph[caller].add(callee_name)
+                    graph[caller_name].add(callee_name)
+                elif isinstance(node.func, ast.Attribute):
+                    callee_name = node.func.attr
+                    graph[caller].add(callee_name)
+                    graph[caller_name].add(callee_name)
+
             self.generic_visit(node)
 
     FunctionCallVisitor().visit(tree)
     return dict(graph)
+
+
+
 
 
 def build_repository_dependency_graph(
@@ -54,12 +86,31 @@ def build_repository_dependency_graph(
     resolved_graph: dict[str, set[str]] = {}
 
     for caller, callees in raw_graph.items():
-        caller_file = caller.split("::", maxsplit=1)[0]
+        caller_file, caller_name = caller.split("::", maxsplit=1)
+        caller_class = (
+            caller_name.rsplit(".", maxsplit=1)[0]
+            if "." in caller_name
+            else None
+        )
         resolved_callees = set()
 
         for callee_name in callees:
-            local_candidate = f"{caller_file}::{callee_name}"
+            if "." in callee_name:
+                class_name, method_name = callee_name.rsplit(".", maxsplit=1)
+                local_candidate = f"{caller_file}::{class_name}.{method_name}"
+                if local_candidate in raw_graph:
+                    resolved_callees.add(local_candidate)
+                    continue
 
+            if caller_class and "." not in callee_name:
+                local_candidate = (
+                    f"{caller_file}::{caller_class}.{callee_name}"
+                )
+                if local_candidate in raw_graph:
+                    resolved_callees.add(local_candidate)
+                    continue
+
+            local_candidate = f"{caller_file}::{callee_name}"
             if local_candidate in raw_graph:
                 resolved_callees.add(local_candidate)
                 continue

@@ -89,3 +89,72 @@ def test_repository_graph_resolves_unique_cross_file_calls():
     assert graph["api.py::create_invoice"] == {
         "billing.py::calculate_total"
     }
+
+
+
+
+def test_detects_attribute_function_calls():
+    source = """\
+class Invoice:
+    def create(self):
+        self.validate()
+        validator.calculate_total()
+
+    def validate(self):
+        return True
+"""
+    graph = build_dependency_graph(source)
+
+    assert graph["create"] == {"validate", "calculate_total"}
+    assert graph["validate"] == set()
+
+
+def test_repository_graph_resolves_same_file_attribute_calls():
+    from changescope.dependency_graph import build_repository_dependency_graph
+
+    graph = build_repository_dependency_graph(
+        {
+            "billing.py": (
+                "class Invoice:\n"
+                "    def create(self):\n"
+                "        self.validate()\n\n"
+                "    def validate(self):\n"
+                "        return True\n"
+            ),
+        }
+    )
+
+    assert graph["billing.py::create"] == {
+        "billing.py::validate"
+    }
+
+
+
+
+
+def test_repository_graph_distinguishes_methods_in_different_classes():
+    from changescope.dependency_graph import build_repository_dependency_graph
+
+    graph = build_repository_dependency_graph(
+        {
+            "billing.py": (
+                "class Invoice:\n"
+                "    def validate(self):\n"
+                "        return True\n\n"
+                "    def create(self):\n"
+                "        self.validate()\n\n"
+                "class Payment:\n"
+                "    def validate(self):\n"
+                "        return False\n\n"
+                "    def process(self):\n"
+                "        self.validate()\n"
+            ),
+        }
+    )
+
+    assert graph["billing.py::Invoice.create"] == {
+        "billing.py::Invoice.validate"
+    }
+    assert graph["billing.py::Payment.process"] == {
+        "billing.py::Payment.validate"
+    }
