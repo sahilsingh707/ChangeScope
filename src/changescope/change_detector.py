@@ -147,7 +147,7 @@ def detect_changed_function_details(
             continue
 
         for function in find_functions_at_lines(source_code, changed_lines):
-            detected[f"{file_path}::{function.name}"] = function
+            detected[f"{file_path}::{function.qualified_name}"] = function
 
     for file_path, changed_lines in deleted_by_file.items():
         if not file_path.endswith(".py") or not changed_lines:
@@ -158,8 +158,10 @@ def detect_changed_function_details(
             continue
 
         for function in find_functions_at_lines(source_code, changed_lines):
-            detected.setdefault(f"{file_path}::{function.name}", function)
-
+            detected.setdefault(
+    f"{file_path}::{function.qualified_name}",
+    function,
+)
     return dict(sorted(detected.items()))
 
 

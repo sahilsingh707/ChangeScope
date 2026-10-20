@@ -33,13 +33,12 @@ def build_dependency_graph(source_code: str) -> dict[str, set[str]]:
         ) -> None:
             name = node.name
             qualified_name = (
-                f"{self.class_stack[-1]}.{name}"
+                f"{'.'.join(self.class_stack)}.{name}"
                 if self.class_stack
                 else name
             )
 
             self.function_stack.append(qualified_name)
-            graph.setdefault(name, set())
             graph.setdefault(qualified_name, set())
 
             self.generic_visit(node)
@@ -47,24 +46,15 @@ def build_dependency_graph(source_code: str) -> dict[str, set[str]]:
 
         def visit_Call(self, node: ast.Call) -> None:
             if self.function_stack:
-                caller = self.function_stack[-1]
-                caller_name = caller.rsplit(".", maxsplit=1)[-1]
-
                 if isinstance(node.func, ast.Name):
-                    callee_name = node.func.id
-                    graph[caller].add(callee_name)
-                    graph[caller_name].add(callee_name)
+                    graph[self.function_stack[-1]].add(node.func.id)
                 elif isinstance(node.func, ast.Attribute):
-                    callee_name = node.func.attr
-                    graph[caller].add(callee_name)
-                    graph[caller_name].add(callee_name)
+                    graph[self.function_stack[-1]].add(node.func.attr)
 
             self.generic_visit(node)
 
     FunctionCallVisitor().visit(tree)
     return dict(graph)
-
-
 
 
 

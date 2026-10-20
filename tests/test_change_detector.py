@@ -2,6 +2,7 @@ import subprocess
 
 from changescope.change_detector import (
     analyze_change_impact,
+    detect_changed_function_details,
     detect_changed_functions,
     extract_changed_lines,
     find_functions_at_lines,
@@ -319,3 +320,126 @@ def test_impact_analysis_keeps_same_named_functions_separate(tmp_path):
     assert "process_data" in affected
     assert "create_invoice" in affected
     assert "build_dashboard" not in affected
+
+
+
+
+def test_detects_changed_class_method_with_qualified_identifier(tmp_path):
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "config", "user.name", "ChangeScope Tests"],
+        cwd=tmp_path,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "tests@example.com"],
+        cwd=tmp_path,
+        check=True,
+    )
+
+    source_file = tmp_path / "billing.py"
+    source_file.write_text(
+        "class Invoice:\n"
+        "    def calculate_total(self):\n"
+        "        return 100\n",
+        encoding="utf-8",
+    )
+
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Initial invoice calculation"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+
+    source_file.write_text(
+        "class Invoice:\n"
+        "    def calculate_total(self):\n"
+        "        return 120\n",
+        encoding="utf-8",
+    )
+
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Update invoice calculation"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+
+    result = detect_changed_function_details(
+        tmp_path,
+        "HEAD~1",
+        "HEAD",
+    )
+
+    assert "billing.py::Invoice.calculate_total" in result
+
+
+
+
+def test_impact_analysis_keeps_same_named_class_methods_separate(tmp_path):
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.name", "ChangeScope Tests"],
+        cwd=tmp_path,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "tests@example.com"],
+        cwd=tmp_path,
+        check=True,
+    )
+
+    source_file = tmp_path / "billing.py"
+    source_file.write_text(
+        "class Invoice:\n"
+        "    def calculate_total(self):\n"
+        "        return 100\n\n"
+        "    def create(self):\n"
+        "        return self.calculate_total()\n\n"
+        "class Payment:\n"
+        "    def calculate_total(self):\n"
+        "        return 200\n\n"
+        "    def process(self):\n"
+        "        return self.calculate_total()\n",
+        encoding="utf-8",
+    )
+
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Initial billing implementation"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+
+    source_file.write_text(
+        "class Invoice:\n"
+        "    def calculate_total(self):\n"
+        "        return 120\n\n"
+        "    def create(self):\n"
+        "        return self.calculate_total()\n\n"
+        "class Payment:\n"
+        "    def calculate_total(self):\n"
+        "        return 200\n\n"
+        "    def process(self):\n"
+        "        return self.calculate_total()\n",
+        encoding="utf-8",
+    )
+
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "Update invoice calculation"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+    )
+
+    affected = analyze_change_impact(tmp_path, "HEAD~1", "HEAD")
+
+    assert "Invoice.calculate_total" in affected
+    assert "Invoice.create" in affected
+    assert "Payment.calculate_total" not in affected
+    assert "Payment.process" not in affected

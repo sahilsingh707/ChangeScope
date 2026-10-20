@@ -105,9 +105,10 @@ class Invoice:
 """
     graph = build_dependency_graph(source)
 
-    assert graph["create"] == {"validate", "calculate_total"}
-    assert graph["validate"] == set()
-
+    assert graph["Invoice.create"] == {"validate", "calculate_total"}
+    assert graph["Invoice.validate"] == set()
+    assert "create" not in graph
+    assert "validate" not in graph
 
 def test_repository_graph_resolves_same_file_attribute_calls():
     from changescope.dependency_graph import build_repository_dependency_graph
@@ -124,8 +125,8 @@ def test_repository_graph_resolves_same_file_attribute_calls():
         }
     )
 
-    assert graph["billing.py::create"] == {
-        "billing.py::validate"
+    assert graph["billing.py::Invoice.create"] == {
+        "billing.py::Invoice.validate"
     }
 
 
