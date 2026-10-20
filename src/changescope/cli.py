@@ -29,12 +29,12 @@ def main() -> None:
         print("ChangeScope Impact Report")
         print("=========================")
         print("Changed functions:")
-        for name in report.changed_functions:
-            print(f"  - {name}")
+        for identifier in report.changed_function_ids:
+            print(f"  - {identifier}")
 
         print("\nPotentially affected functions:")
-        for name in report.affected_functions:
-            print(f"  - {name}")
+        for identifier in report.affected_function_ids:
+            print(f"  - {identifier}")
 
         print("\nRecommended tests:")
         for test_file in report.recommended_tests:

@@ -122,16 +122,16 @@ def extract_deleted_lines_by_file(diff_text: str) -> dict[str, set[int]]:
 
 
 
-def detect_changed_functions(
+def detect_changed_function_details(
     repository_path: str | Path,
     base_ref: str,
     target_ref: str = "HEAD",
-) -> list[FunctionInfo]:
+) -> dict[str, FunctionInfo]:
     repository = Path(repository_path)
     diff_text = read_git_diff(repository, base_ref, target_ref)
     added_by_file = extract_changed_lines_by_file(diff_text)
     deleted_by_file = extract_deleted_lines_by_file(diff_text)
-    detected: dict[tuple[str, str], FunctionInfo] = {}
+    detected: dict[str, FunctionInfo] = {}
 
     for file_path, changed_lines in added_by_file.items():
         if not file_path.endswith(".py") or not changed_lines:
@@ -147,7 +147,7 @@ def detect_changed_functions(
             continue
 
         for function in find_functions_at_lines(source_code, changed_lines):
-            detected[(file_path, function.name)] = function
+            detected[f"{file_path}::{function.name}"] = function
 
     for file_path, changed_lines in deleted_by_file.items():
         if not file_path.endswith(".py") or not changed_lines:
@@ -158,16 +158,28 @@ def detect_changed_functions(
             continue
 
         for function in find_functions_at_lines(source_code, changed_lines):
-            detected.setdefault((file_path, function.name), function)
+            detected.setdefault(f"{file_path}::{function.name}", function)
 
+    return dict(sorted(detected.items()))
+
+
+def detect_changed_functions(
+    repository_path: str | Path,
+    base_ref: str,
+    target_ref: str = "HEAD",
+) -> list[FunctionInfo]:
+    details = detect_changed_function_details(
+        repository_path,
+        base_ref,
+        target_ref,
+    )
     return sorted(
-        detected.values(),
+        details.values(),
         key=lambda function: (function.line_number, function.name),
     )
 
 
-
-def analyze_change_impact(
+def analyze_change_impact_ids(
     repository_path: str | Path,
     base_ref: str,
     target_ref: str = "HEAD",
@@ -175,38 +187,9 @@ def analyze_change_impact(
     from changescope.dependency_graph import build_repository_dependency_graph
 
     repository = Path(repository_path)
-    diff_text = read_git_diff(repository, base_ref, target_ref)
-    added_by_file = extract_changed_lines_by_file(diff_text)
-    deleted_by_file = extract_deleted_lines_by_file(diff_text)
-    changed_ids = set()
-
-    for file_path, changed_lines in added_by_file.items():
-        if not file_path.endswith(".py") or not changed_lines:
-            continue
-
-        full_path = repository / file_path
-        if not full_path.is_file():
-            continue
-
-        try:
-            source_code = full_path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-
-        for function in find_functions_at_lines(source_code, changed_lines):
-            changed_ids.add(f"{file_path}::{function.name}")
-
-    for file_path, changed_lines in deleted_by_file.items():
-        if not file_path.endswith(".py") or not changed_lines:
-            continue
-
-        source_code = read_git_file(repository, base_ref, file_path)
-        if source_code is None:
-            continue
-
-        for function in find_functions_at_lines(source_code, changed_lines):
-            changed_ids.add(f"{file_path}::{function.name}")
-
+    changed_ids = set(
+        detect_changed_function_details(repository, base_ref, target_ref)
+    )
     sources = {}
 
     for source_file in repository.rglob("*.py"):
@@ -214,16 +197,26 @@ def analyze_change_impact(
             continue
 
         try:
-            sources[source_file.relative_to(repository).as_posix()] = (
-                source_file.read_text(encoding="utf-8")
-            )
+            relative_path = source_file.relative_to(repository).as_posix()
+            sources[relative_path] = source_file.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
 
     graph = build_repository_dependency_graph(sources)
-    affected_ids = find_affected_functions(graph, changed_ids)
+    return find_affected_functions(graph, changed_ids)
 
+
+def analyze_change_impact(
+    repository_path: str | Path,
+    base_ref: str,
+    target_ref: str = "HEAD",
+) -> set[str]:
+    qualified_ids = analyze_change_impact_ids(
+        repository_path,
+        base_ref,
+        target_ref,
+    )
     return {
         identifier.split("::", maxsplit=1)[1]
-        for identifier in affected_ids
+        for identifier in qualified_ids
     }

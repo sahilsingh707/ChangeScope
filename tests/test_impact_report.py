@@ -80,3 +80,37 @@ def test_analyzes_repository_and_returns_impact_report(tmp_path):
 
     assert "calculate_total" in report.changed_functions
     assert "create_invoice" in report.affected_functions
+
+
+
+
+def test_impact_report_preserves_duplicate_function_identities():
+    from changescope.impact_report import create_impact_report
+
+    report = create_impact_report(
+        changed_functions={"process_data"},
+        affected_functions={"process_data", "create_invoice"},
+        test_files={
+            "tests/test_billing.py": {"process_data", "create_invoice"},
+            "tests/test_analytics.py": {"process_data"},
+        },
+        changed_function_ids={
+            "billing.py::process_data",
+            "analytics.py::process_data",
+        },
+        affected_function_ids={
+            "billing.py::process_data",
+            "billing.py::create_invoice",
+            "analytics.py::process_data",
+        },
+    )
+
+    assert report.changed_function_ids == [
+        "analytics.py::process_data",
+        "billing.py::process_data",
+    ]
+    assert report.affected_function_ids == [
+        "billing.py::create_invoice",
+    ]
+    assert report.changed_functions == ["process_data"]
+    assert report.affected_functions == ["create_invoice"]

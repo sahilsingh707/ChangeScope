@@ -9,6 +9,9 @@ description = "Evidence-based code change impact analysis and test selection"
 requires-python = ">=3.11"
 dependencies = []
 
+[project.scripts]
+changescope = "changescope.cli:main"
+
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.8"]
 
