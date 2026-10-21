@@ -1,3 +1,5 @@
+
+import ast
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -14,6 +16,41 @@ class ImpactReport:
     recommended_tests: list[str]
     changed_function_ids: list[str] = field(default_factory=list)
     affected_function_ids: list[str] = field(default_factory=list)
+
+
+def extract_test_references(source_code: str) -> set[str]:
+    try:
+        tree = ast.parse(source_code)
+    except SyntaxError:
+        return set()
+
+    references = set()
+
+    def get_attribute_chain(node: ast.AST) -> str | None:
+        if isinstance(node, ast.Name):
+            return node.id
+
+        if isinstance(node, ast.Attribute):
+            parent = get_attribute_chain(node.value)
+            if parent is not None:
+                return f"{parent}.{node.attr}"
+
+        return None
+
+    class ReferenceVisitor(ast.NodeVisitor):
+        def visit_Name(self, node: ast.Name) -> None:
+            references.add(node.id)
+
+        def visit_Attribute(self, node: ast.Attribute) -> None:
+            chain = get_attribute_chain(node)
+            if chain is not None:
+                references.add(chain)
+            references.add(node.attr)
+            self.generic_visit(node)
+
+    ReferenceVisitor().visit(tree)
+
+    return references
 
 
 def create_impact_report(
@@ -69,12 +106,18 @@ def analyze_repository(
     )
 
     changed_names = {
-        identifier.split("::", maxsplit=1)[1]
+        identifier.split("::", maxsplit=1)[1].split(".")[-1]
         for identifier in changed_ids
     }
     affected_names = {
-        identifier.split("::", maxsplit=1)[1]
+        identifier.split("::", maxsplit=1)[1].split(".")[-1]
         for identifier in affected_ids
+    }
+
+    impacted_qualified_names = {
+        identifier.split("::", maxsplit=1)[1]
+        for identifier in changed_ids | affected_ids
+        if "." in identifier.split("::", maxsplit=1)[1]
     }
 
     test_files = {}
@@ -88,11 +131,18 @@ def analyze_repository(
         except (OSError, UnicodeDecodeError):
             continue
 
+        test_references = extract_test_references(source)
+
         covered = {
             name
             for name in changed_names | affected_names
-            if name in source
+            if name in test_references
         }
+
+        for qualified_name in impacted_qualified_names:
+            if qualified_name in test_references:
+                covered.add(qualified_name.split(".")[-1])
+
         test_files[test_file.relative_to(repository).as_posix()] = covered
 
     return create_impact_report(

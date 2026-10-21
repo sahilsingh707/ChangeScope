@@ -1,6 +1,10 @@
 import subprocess
 
-from changescope.impact_report import analyze_repository, create_impact_report
+from changescope.impact_report import (
+    analyze_repository,
+    create_impact_report,
+    extract_test_references,
+)
 
 
 def test_creates_impact_report():
@@ -114,3 +118,66 @@ def test_impact_report_preserves_duplicate_function_identities():
     ]
     assert report.changed_functions == ["process_data"]
     assert report.affected_functions == ["create_invoice"]
+
+
+
+
+def test_does_not_recommend_test_for_unrelated_name_mention():
+    report = create_impact_report(
+        changed_functions={"calculate_total"},
+        affected_functions=set(),
+        test_files={
+            "tests/test_billing.py": {"calculate_total"},
+            "tests/test_documentation.py": set(),
+        },
+    )
+
+    assert report.recommended_tests == ["tests/test_billing.py"]
+
+
+
+def test_extract_test_references_finds_function_and_attribute_names():
+    references = extract_test_references(
+        "from billing import calculate_total\n"
+        "invoice.calculate_total()\n"
+    )
+
+    assert "calculate_total" in references
+    assert "invoice" in references
+
+
+def test_extract_test_references_ignores_comments_and_strings():
+    references = extract_test_references(
+        "# calculate_total\n"
+        "message = 'create_invoice'\n"
+    )
+
+    assert "calculate_total" not in references
+    assert "create_invoice" not in references
+
+
+def test_extract_test_references_handles_invalid_python():
+    assert extract_test_references("def broken(:") == set()
+
+
+
+
+def test_extract_test_references_distinguishes_class_method_calls():
+    references = extract_test_references(
+        "invoice.calculate_total()\n"
+        "cart.calculate_total()\n"
+    )
+
+    assert "invoice.calculate_total" in references
+    assert "cart.calculate_total" in references
+
+
+def test_extract_test_references_keeps_same_method_names_distinct():
+    references = extract_test_references(
+        "invoice.calculate_total()\n"
+        "cart.calculate_total()\n"
+    )
+
+    assert "invoice.calculate_total" in references
+    assert "cart.calculate_total" in references
+    assert "calculate_total" in references
